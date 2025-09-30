@@ -1,31 +1,29 @@
 section .bss
-    input resb 16      ; buffer pour lecture du nombre
+    input resb 16
 
 section .text
     global _start
 
 _start:
-    ; Lecture stdin
-    mov rax, 0         ; syscall read
-    mov rdi, 0         ; fd 0 = stdin
+    mov rax, 0
+    mov rdi, 0
     mov rsi, input
-    mov rdx, 16        ; max 16 caractères
+    mov rdx, 16
     syscall
 
-    ; Conversion ASCII decimal vers entier
     mov rsi, input
-    xor rbx, rbx       ; rbx = résultat/nombre
+    xor rbx, rbx
 
 read_digit:
     mov al, [rsi]
-    cmp al, 10         ; saut de ligne (fin de lecture)
-    je check_even
+    cmp al, 10
+    je test_even
     cmp al, 0
-    je check_even
+    je test_even
     cmp al, '0'
-    jb check_even
+    jb bad_input
     cmp al, '9'
-    ja check_even
+    ja bad_input
 
     sub al, '0'
     imul rbx, rbx, 10
@@ -33,14 +31,19 @@ read_digit:
     inc rsi
     jmp read_digit
 
-check_even:
+test_even:
     test bl, 1
-    jz exit_zero       ; pair
-    mov rdi, 1         ; impair
+    jz exit_zero
+    mov rdi, 1
     mov rax, 60
     syscall
 
 exit_zero:
     xor rdi, rdi
     mov rax, 60
+    syscall
+
+bad_input:
+    mov rax, 60
+    mov rdi, 2
     syscall
