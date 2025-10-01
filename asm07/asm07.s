@@ -19,29 +19,33 @@ _start:
     jle read_error              ; Si rax <= 0, erreur de lecture
 
     ; ==========================================
-    ; Conversion ASCII -> Integer (atoi custom)
+    ; Conversion ASCII -> Integer avec validation stricte
     ; ==========================================
     xor rax, rax                ; rax = 0 (accumulateur pour le nombre)
     xor rcx, rcx                ; rcx = 0 (index dans le buffer)
     mov rsi, input_buffer       ; pointeur vers le buffer
+    xor r8, r8                  ; r8 = compteur de chiffres valides
 
 .parse_loop:
     movzx rbx, byte [rsi + rcx] ; Charger un caractère du buffer
     
     ; Vérifier si c'est un newline (0x0A) ou null terminator (0x00)
     cmp bl, 0x0A
-    je .parse_done
+    je .check_validity
     cmp bl, 0x00
-    je .parse_done
+    je .check_validity
+    cmp bl, ' '                 ; Ignorer les espaces
+    je .check_validity
     
     ; Vérifier si c'est un chiffre ASCII ('0' = 0x30 à '9' = 0x39)
     cmp bl, '0'
-    jb .parse_done              ; Si < '0', fin de parsing
+    jb invalid_input            ; Si < '0', entrée invalide
     cmp bl, '9'
-    ja .parse_done              ; Si > '9', fin de parsing
+    ja invalid_input            ; Si > '9', entrée invalide
     
     ; Conversion ASCII -> numérique
     sub bl, '0'                 ; bl = bl - 48 (conversion ASCII -> int)
+    inc r8                      ; Incrémenter le compteur de chiffres valides
     
     ; rax = rax * 10 + bl
     imul rax, rax, 10           ; rax = rax * 10
@@ -51,7 +55,11 @@ _start:
     inc rcx                     ; Incrémenter l'index
     jmp .parse_loop
 
-.parse_done:
+.check_validity:
+    ; Vérifier qu'au moins un chiffre a été lu
+    cmp r8, 0
+    je invalid_input            ; Si aucun chiffre valide, entrée invalide
+    
     mov rdi, rax                ; rdi = le nombre parsé (sera notre candidat)
 
     ; ==========================================
@@ -112,6 +120,12 @@ not_prime:
     ; Exit code 1 = nombre NON premier
     mov rax, 60                 ; syscall: sys_exit (60)
     mov rdi, 1                  ; exit code = 1
+    syscall
+
+invalid_input:
+    ; Exit code 2 = entrée invalide (caractères non-numériques)
+    mov rax, 60                 ; syscall: sys_exit (60)
+    mov rdi, 2                  ; exit code = 2
     syscall
 
 read_error:
