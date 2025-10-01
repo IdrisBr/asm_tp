@@ -9,16 +9,16 @@ _start:
     cmp rax, 2
     jne bad_args
 
-    mov rsi, [rsp+16]        ; argv[1] (attention: argv[0] = programme)
+    mov rsi, [rsp+16]        ; argv[1] (argv[0] = nom programme)
     call atonum              ; convertir chaine -> entier
 
     mov rcx, rax             ; rcx = N
     xor rax, rax             ; somme = 0
-    mov rbx, 1               ; compteur
+    mov rbx, 1               ; compteur = 1
 
 .sumloop:
-    cmp rbx, rcx
-    jg .done_sum             ; si compteur > N, fin
+    cmp rbx, rcx             ; tant que compteur < N
+    jge .done_sum
     add rax, rbx
     inc rbx
     jmp .sumloop
@@ -59,7 +59,7 @@ atonum:
     cmp bl, 9
     ja .done
     imul rax, rax, 10
-    movzx rdx, bl        ; étend le chiffre en 64 bits
+    movzx rdx, bl        ; chiffre étendu
     add rax, rdx
     inc rcx
     jmp .loop
