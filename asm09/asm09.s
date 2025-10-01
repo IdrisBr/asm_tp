@@ -9,30 +9,46 @@ _start:
     ; ==========================================
     ; Accès aux arguments depuis la stack
     ; Au démarrage: [rsp] = argc
-    ;               [rsp+8] = argv[0] (nom du programme)
-    ;               [rsp+16] = argv[1] (premier argument)
-    ;               [rsp+24] = argv[2] (deuxième argument)
+    ;               [rsp+8] = argv[0]
+    ;               [rsp+16] = argv[1]
+    ;               [rsp+24] = argv[2]
     ; ==========================================
     
-    mov rcx, [rsp]              ; rcx = argc (nombre d'arguments)
+    mov rcx, [rsp]              ; rcx = argc
     cmp rcx, 2                  ; Vérifier qu'il y a au moins 1 argument
-    jl usage_error              ; Si argc < 2, erreur d'usage
+    jl usage_error
     
-    ; Récupérer argv[1] (le nombre décimal)
-    mov rdi, [rsp + 16]         ; rdi = pointeur vers argv[1]
+    ; Vérifier d'abord si argv[1] est "-b"
+    mov r8, [rsp + 16]          ; r8 = argv[1]
+    mov al, byte [r8]
+    cmp al, '-'
+    jne .not_option
+    mov al, byte [r8+1]
+    cmp al, 'b'
+    jne .not_option
+    mov al, byte [r8+2]
+    test al, al
+    jnz .not_option
     
-    ; Parser le nombre décimal
-    call parse_decimal          ; rax contiendra le nombre
-    mov [number], rax           ; Sauvegarder le nombre
+    ; Si argv[1] == "-b", le nombre est dans argv[2]
+    cmp rcx, 3                  ; Vérifier argc >= 3
+    jl usage_error
+    mov rdi, [rsp + 24]         ; rdi = argv[2] (le nombre)
+    call parse_decimal
+    mov [number], rax
+    jmp print_binary
     
-    ; Vérifier si argc >= 3 (option -b présente)
+.not_option:
+    ; argv[1] est le nombre
+    mov rdi, [rsp + 16]
+    call parse_decimal
+    mov [number], rax
+    
+    ; Vérifier si argv[2] existe et est "-b"
     cmp rcx, 3
-    jl print_hex                ; Si pas d'option, afficher en hexa
+    jl print_hex
     
-    ; Récupérer argv[2] pour vérifier si c'est "-b"
-    mov r8, [rsp + 24]          ; r8 = pointeur vers argv[2]
-    
-    ; Vérifier si c'est "-b"
+    mov r8, [rsp + 24]          ; r8 = argv[2]
     mov al, byte [r8]
     cmp al, '-'
     jne print_hex
@@ -40,7 +56,7 @@ _start:
     cmp al, 'b'
     jne print_hex
     mov al, byte [r8+2]
-    test al, al                 ; Vérifier que c'est bien la fin
+    test al, al
     jnz print_hex
     
     jmp print_binary
@@ -51,28 +67,23 @@ _start:
 ; Sortie: rax = nombre converti
 ; ==========================================
 parse_decimal:
-    xor rax, rax                ; rax = 0 (accumulateur)
-    xor rcx, rcx                ; rcx = 0 (index)
-    xor r9, r9                  ; r9 = compteur de chiffres
+    xor rax, rax
+    xor rcx, rcx
+    xor r9, r9
     
 .loop:
-    movzx rbx, byte [rdi + rcx] ; Charger un caractère
-    
-    ; Vérifier fin de chaîne
+    movzx rbx, byte [rdi + rcx]
     test bl, bl
     jz .done
     
-    ; Vérifier si c'est un chiffre
     cmp bl, '0'
     jb invalid_input
     cmp bl, '9'
     ja invalid_input
     
-    ; Conversion ASCII -> int
     sub bl, '0'
-    inc r9                      ; Compter le chiffre
+    inc r9
     
-    ; rax = rax * 10 + digit
     imul rax, rax, 10
     movzx rbx, bl
     add rax, rbx
@@ -81,161 +92,139 @@ parse_decimal:
     jmp .loop
     
 .done:
-    ; Vérifier qu'au moins un chiffre a été lu
     test r9, r9
     jz invalid_input
     ret
 
 ; ==========================================
 ; FONCTION: print_hex
-; Convertit le nombre en hexadécimal et l'affiche
 ; ==========================================
 print_hex:
-    mov rax, [number]           ; Charger le nombre
-    mov rsi, output_buffer      ; Pointeur vers le buffer de sortie
+    mov rax, [number]
     
-    ; Cas spécial: nombre = 0
+    ; Cas spécial: 0
     test rax, rax
     jnz .not_zero
-    
-    mov byte [rsi], '0'
-    mov byte [rsi+1], 10        ; Newline
-    mov rdx, 2                  ; Longueur = 2
+    mov byte [output_buffer], '0'
+    mov byte [output_buffer+1], 10
+    mov rdx, 2
     jmp .print
     
 .not_zero:
-    ; Conversion en hexadécimal (de droite à gauche)
-    mov rbx, rax                ; rbx = nombre à convertir
-    mov rcx, 0                  ; rcx = index dans le buffer
+    ; Convertir en hex (stockage de droite à gauche dans un buffer temporaire)
+    mov rbx, rax
+    xor rcx, rcx                ; Compteur de chiffres
     
-    ; Remplir le buffer de droite à gauche
+    ; Utiliser la fin du buffer pour stocker temporairement
+    mov rsi, output_buffer + 40 ; Milieu du buffer
+    
 .convert_loop:
     mov rax, rbx
-    and rax, 0x0F               ; Extraire les 4 bits de poids faible
+    and rax, 0x0F
     
-    ; Convertir 0-15 en caractère hex
     cmp al, 9
     jle .digit
-    add al, 'A' - 10            ; A-F (MAJUSCULES)
+    add al, 'A' - 10
     jmp .store
 .digit:
-    add al, '0'                 ; 0-9
+    add al, '0'
     
 .store:
-    mov [output_buffer + rcx], al
+    mov [rsi + rcx], al
     inc rcx
-    shr rbx, 4                  ; Décaler de 4 bits vers la droite
+    shr rbx, 4
     test rbx, rbx
     jnz .convert_loop
     
-    ; Inverser la chaîne (elle est à l'envers)
-    mov r8, 0                   ; r8 = début
-    mov r9, rcx                 ; r9 = fin
-    dec r9
+    ; Copier en inversant vers le début du buffer
+    xor r8, r8                  ; Index destination
+    dec rcx                     ; rcx pointe sur le dernier caractère
     
-.reverse_loop:
-    cmp r8, r9
-    jge .reverse_done
-    
-    ; Échanger output_buffer[r8] et output_buffer[r9]
-    mov al, [output_buffer + r8]
-    mov bl, [output_buffer + r9]
-    mov [output_buffer + r8], bl
-    mov [output_buffer + r9], al
-    
+.copy_reverse:
+    mov al, [rsi + rcx]
+    mov [output_buffer + r8], al
     inc r8
-    dec r9
-    jmp .reverse_loop
+    dec rcx
+    cmp rcx, -1
+    jne .copy_reverse
     
-.reverse_done:
     ; Ajouter newline
-    mov byte [output_buffer + rcx], 10
-    inc rcx
-    mov rdx, rcx                ; rdx = longueur totale
+    mov byte [output_buffer + r8], 10
+    inc r8
+    mov rdx, r8
     
 .print:
-    mov rax, 1                  ; syscall: sys_write
-    mov rdi, 1                  ; fd: stdout
+    mov rax, 1
+    mov rdi, 1
     mov rsi, output_buffer
     syscall
-    
     jmp exit_success
 
 ; ==========================================
 ; FONCTION: print_binary
-; Convertit le nombre en binaire et l'affiche
 ; ==========================================
 print_binary:
-    mov rax, [number]           ; Charger le nombre
-    mov rsi, output_buffer      ; Pointeur vers le buffer de sortie
+    mov rax, [number]
     
-    ; Cas spécial: nombre = 0
+    ; Cas spécial: 0
     test rax, rax
     jnz .not_zero
-    
-    mov byte [rsi], '0'
-    mov byte [rsi+1], 10        ; Newline
-    mov rdx, 2                  ; Longueur = 2
+    mov byte [output_buffer], '0'
+    mov byte [output_buffer+1], 10
+    mov rdx, 2
     jmp .print
     
 .not_zero:
-    mov rbx, rax                ; rbx = nombre à convertir
-    mov rcx, 0                  ; rcx = index dans le buffer
+    mov rbx, rax
+    xor rcx, rcx
     
-    ; Remplir le buffer de droite à gauche
+    ; Utiliser la fin du buffer
+    mov rsi, output_buffer + 40
+    
 .convert_loop:
     mov rax, rbx
-    and rax, 1                  ; Extraire le bit de poids faible
-    add al, '0'                 ; Convertir en caractère '0' ou '1'
-    mov [output_buffer + rcx], al
+    and rax, 1
+    add al, '0'
+    mov [rsi + rcx], al
     inc rcx
-    shr rbx, 1                  ; Décaler de 1 bit vers la droite
+    shr rbx, 1
     test rbx, rbx
     jnz .convert_loop
     
-    ; Inverser la chaîne
-    mov r8, 0                   ; r8 = début
-    mov r9, rcx                 ; r9 = fin
-    dec r9
+    ; Copier en inversant
+    xor r8, r8
+    dec rcx
     
-.reverse_loop:
-    cmp r8, r9
-    jge .reverse_done
-    
-    ; Échanger output_buffer[r8] et output_buffer[r9]
-    mov al, [output_buffer + r8]
-    mov bl, [output_buffer + r9]
-    mov [output_buffer + r8], bl
-    mov [output_buffer + r9], al
-    
+.copy_reverse:
+    mov al, [rsi + rcx]
+    mov [output_buffer + r8], al
     inc r8
-    dec r9
-    jmp .reverse_loop
+    dec rcx
+    cmp rcx, -1
+    jne .copy_reverse
     
-.reverse_done:
     ; Ajouter newline
-    mov byte [output_buffer + rcx], 10
-    inc rcx
-    mov rdx, rcx                ; rdx = longueur totale
+    mov byte [output_buffer + r8], 10
+    inc r8
+    mov rdx, r8
     
 .print:
-    mov rax, 1                  ; syscall: sys_write
-    mov rdi, 1                  ; fd: stdout
+    mov rax, 1
+    mov rdi, 1
     mov rsi, output_buffer
     syscall
-    
     jmp exit_success
 
 ; ==========================================
-; Sorties du programme
+; Sorties
 ; ==========================================
 exit_success:
-    mov rax, 60                 ; syscall: sys_exit
-    xor rdi, rdi                ; exit code = 0
+    mov rax, 60
+    xor rdi, rdi
     syscall
 
 usage_error:
 invalid_input:
-    mov rax, 60                 ; syscall: sys_exit
-    mov rdi, 1                  ; exit code = 1
+    mov rax, 60
+    mov rdi, 1
     syscall
