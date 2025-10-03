@@ -2,125 +2,122 @@ section .bss
     input resb 4096
 
 section .data
-    usage db "usage: ./asm17 [shift]",10,0
+    usage db "usage: ./asm17 <shift>",10,0
 
 section .text
 global _start
 
 _start:
-    ; Vérifier le nombre d'arguments (1 ou 2)
-    mov rdi, [rsp]
-    cmp rdi, 2
-    je has_arg
-    cmp rdi, 1
-    je no_arg
-    jmp usage_error
+    mov rax, [rsp]
+    cmp rax, 2                ; require shift param
+    jne usage_error
 
-has_arg:
-    mov rsi, [rsp+16]       ; argv[1]
+    mov rsi, [rsp+16]         ; argv[1]
+    xor rbx, rbx
     xor rcx, rcx
-    mov rbx, 0
-.next_digit:
-    mov al, byte [rsi + rcx]
+.parse_shift:
+    mov al, [rsi+rcx]
     test al, al
-    jz .set_shift
-    sub al, '0'
-    cmp al, 9
+    jz .done_parse
+    cmp al, '0'
+    jb usage_error
+    cmp al, '9'
     ja usage_error
     imul rbx, rbx, 10
+    sub al, '0'
     add rbx, rax
     inc rcx
-    jmp .next_digit
-.set_shift:
-    mov r13, rbx
-    jmp read_stdin
-no_arg:
-    mov r13, 0                  ; traitement spécial : pas de shift
-    jmp read_stdin
+    jmp .parse_shift
+.done_parse:
+    mov r13, rbx              ; shift
 
-usage_error:
-    mov rsi, usage
-    call print_str
-    mov rax, 60
-    mov rdi, 1
-    syscall
-
-read_stdin:
-    mov rax, 0          ; sys_read
-    mov rdi, 0
+    mov rax, 0                ; sys_read
+    mov rdi, 0                ; stdin
     mov rsi, input
     mov rdx, 4096
     syscall
+    mov r12, rax              ; length
     test rax, rax
-    jle done            ; 0 ou erreur => quit
-    mov r12, rax        ; nb de bytes lus
+    jle output_empty
 
-    mov rcx, 0
-process_loop:
+    xor rcx, rcx
+.next_char:
     cmp rcx, r12
-    jge print_result
+    jge output_done
 
     mov al, [input+rcx]
-    cmp al, 10          ; garder les newlines
-    je skip_caesar
-    cmp al, 'A'
-    jb no_caesar
-    cmp al, 'Z'
-    ja check_lower
-    ; Uppercase: 'A'-'Z'
-    sub al, 'A'
-    add al, byte r13b
-    mov bl, 26
-    div bl              ; al = (lettre+shift) mod 26, ah = quotient
-    add al, 'A'
-    mov [input+rcx], al
-    jmp next_char
-
-check_lower:
+    mov bl, al                ; backup original
+    ; Lowercase test
     cmp al, 'a'
-    jb no_caesar
+    jb .check_upper
     cmp al, 'z'
-    ja no_caesar
-    ; Lowercase: 'a'-'z'
+    ja .copy_char
     sub al, 'a'
-    add al, byte r13b
+    add al, r13b
+    mov ah, 0
     mov bl, 26
-    div bl
+    div bl                    ; rax = (val+shift)/26, al = new char pos
     add al, 'a'
     mov [input+rcx], al
-    jmp next_char
+    jmp .next_pos
 
-no_caesar:
-    ; Garde le caractère inchangé
-    jmp next_char
+.check_upper:
+    cmp bl, 'A'
+    jb .copy_char
+    cmp bl, 'Z'
+    ja .copy_char
+    mov al, bl
+    sub al, 'A'
+    add al, r13b
+    mov ah, 0
+    mov bl, 26
+    div bl
+    add al, 'A'
+    mov [input+rcx], al
+    jmp .next_pos
 
-skip_caesar:
-    ; Laisse le saut de ligne inchangé
+.copy_char:
+    mov [input+rcx], bl
 
-next_char:
+.next_pos:
     inc rcx
-    jmp process_loop
+    jmp .next_char
 
-print_result:
-    mov rax, 1          ; sys_write
+output_done:
+    mov rax, 1                ; sys_write
     mov rdi, 1
     mov rsi, input
     mov rdx, r12
     syscall
-done:
     mov rax, 60
     xor rdi, rdi
     syscall
 
-; rsi = chaîne zéro-terminée à afficher
-print_str:
+output_empty:
+    mov rax, 1
+    mov rdi, 1
+    mov rsi, input
+    mov rdx, 0
+    syscall
+    mov rax, 60
+    xor rdi, rdi
+    syscall
+
+usage_error:
+    mov rsi, usage
+    call print_str0
+    mov rax, 60
+    mov rdi, 1
+    syscall
+
+print_str0:
     mov rdx, 0
 .find_end:
     cmp byte [rsi+rdx], 0
-    je .got_len
+    je .done_len
     inc rdx
     jmp .find_end
-.got_len:
+.done_len:
     mov rax, 1
     mov rdi, 1
     syscall
