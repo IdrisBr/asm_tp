@@ -3,57 +3,62 @@ section .data
     new_str db 'H4CK'
     str_len equ $-old_str
 
+    err_no_arg      db "Erreur: Pas d'argument",10
+    err_open        db "Erreur ouverture fichier",10
+    err_read        db "Erreur lecture fichier",10
+    err_not_found   db "Chaîne '1337' non trouvée",10
+    err_write       db "Erreur écriture fichier",10
+
 section .bss
-    filename resb 256       ; buffer pour le nom du fichier
-    buffer   resb 1024      ; tampon lecture
+    filename resb 256
+    buffer   resb 1024
 
 section .text
 global _start
-_start:
-    ; Vérification nombre d'arguments (argc==2)
-    mov rdi, [rsp]          ; argc
-    cmp rdi, 2
-    jne usage_error
 
-    ; Copie argv[1] dans filename (adresse argv[1] dans rsi)
-    mov rsi, [rsp+16]       ; argv[1]
+_start:
+    ; Vérification argc == 2
+    mov rdi, [rsp]       ; argc
+    cmp rdi, 2
+    je arg_ok
+    mov rdi, err_no_arg
+    call print_string
+    jmp exit_err
+
+arg_ok:
+    mov rsi, [rsp+16]    ; argv[1]
     mov rdi, filename
     call copy_string
 
-    ; Ouverture fichier (O_RDWR)
-    mov rax, 2              ; sys_open
+    ; open(filename, O_RDWR)
+    mov rax, 2
     mov rdi, filename
-    mov rsi, 2              ; O_RDWR
+    mov rsi, 2           ; O_RDWR
     mov rdx, 0
     syscall
     cmp rax, 0
-    js file_error
-    mov r12, rax            ; sauvegarde fd dans r12
+    jl error_open
+    mov r12, rax
 
-    ; Recherche de la chaîne "1337" dans le fichier
-    mov r13, 0              ; offset fichier courant
 search_loop:
-    ; Lecture 1024 octets dans buffer
-    mov rax, 0              ; sys_read
-    mov rdi, r12            ; fd
+    mov rax, 0           ; sys_read
+    mov rdi, r12
     mov rsi, buffer
     mov rdx, 1024
     syscall
     cmp rax, 0
-    jle not_found           ; fin fichier ou erreur
+    jle not_found
+    mov r14, rax
 
-    mov r14, rax            ; taille lue
-    mov rbx, 0              ; index dans tampon
+    mov rbx, 0
 check_pos:
     cmp rbx, r14
     jg not_found
 
-    ; Comparaison 4 octets à partir de buffer[rbx] avec old_str
     mov rcx, str_len
     mov rdi, buffer
-    add rdi, rbx            ; adresse buffer+rbx
+    add rdi, rbx
     mov rsi, old_str
-
     call memcmp4
     cmp rax, 0
     je patch_here
@@ -62,50 +67,60 @@ check_pos:
     jmp check_pos
 
 patch_here:
-    ; Somme offset absolu = r13 + rbx
+    ; Offset fichier = offset lu + pos buffer
     mov rax, r13
     add rax, rbx
 
-    ; Seek dans fichier à cette position
-    mov rdi, r12            ; fd
-    mov rsi, rax            ; offset absolu
-    mov rdx, 0              ; SEEK_SET
-    mov rax, 8              ; sys_lseek
+    mov rdi, r12
+    mov rsi, rax
+    mov rdx, 0
+    mov rax, 8           ; sys_lseek
     syscall
-
-    ; Écriture de "H4CK" à cette position
-    mov rax, 1              ; sys_write
+    ; Écriture patch
+    mov rax, 1           ; sys_write
     mov rdi, r12
     mov rsi, new_str
     mov rdx, str_len
     syscall
     cmp rax, str_len
-    jne file_error
+    jne error_write
 
-    ; Fermeture fichier
-    mov rax, 3              ; sys_close
+    ; Fermeture fichier et exit success
+    mov rax, 3           ; sys_close
     mov rdi, r12
     syscall
 
-    ; Succès
-    mov rax, 60             ; sys_exit
+    mov rax, 60          ; sys_exit
     xor rdi, rdi
     syscall
 
 not_found:
-    ; Fermeture fichier avant erreur
-    mov rax, 3
+    mov rdi, err_not_found
+    call print_string
+    jmp close_exit_err
+
+error_open:
+    mov rdi, err_open
+    call print_string
+    jmp exit_err
+
+error_write:
+    mov rdi, err_write
+    call print_string
+    jmp close_exit_err
+
+close_exit_err:
+    mov rax, 3           ; sys_close
     mov rdi, r12
     syscall
 
-file_error:
-usage_error:
-    mov rax, 60
+exit_err:
+    mov rax, 60          ; sys_exit
     mov rdi, 1
     syscall
 
-;--------------------
-; copy_string: copie chaine C (0 terminated) de rsi à rdi
+;----------------------------------------------------
+; Routine copiestring
 copy_string:
     xor rcx, rcx
 .copy_loop:
@@ -116,9 +131,8 @@ copy_string:
     jnz .copy_loop
     ret
 
-;--------------------
-; memcmp4: compare 4 octets entre [rdi] et [rsi]
-; renvoie 0 si égal, sinon ≠0 dans rax
+;----------------------------------------------------
+; Routine memcmp4
 memcmp4:
     mov al, [rdi]
     cmp al, [rsi]
@@ -136,4 +150,19 @@ memcmp4:
     ret
 .diff:
     mov rax, 1
+    ret
+
+;----------------------------------------------------
+; Routine print_string (stdout)
+print_string:
+    mov rax, 1           ; sys_write
+    mov rdi, 1           ; stdout
+    mov rdx, 0
+.find_len:
+    cmp byte [rdi + rdx], 0
+    je .done_len
+    inc rdx
+    jmp .find_len
+.done_len:
+    syscall
     ret
