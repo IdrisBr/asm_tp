@@ -17,15 +17,14 @@ _start:
     syscall
     
     ; rax contient le nombre d'octets lus
-    ; Si rax <= 0, pas de données (chaîne vide ou erreur)
     cmp rax, 0
-    jle empty_input             ; Si rien n'a été lu, compteur = 0
+    jle empty_input
     
     mov rcx, rax                ; rcx = nombre d'octets lus
     
     ; ==========================================
     ; Compter les voyelles
-    ; Voyelles: a, e, i, o, u, A, E, I, O, U
+    ; Voyelles: a, e, i, o, u, y, A, E, I, O, U, Y
     ; ==========================================
     xor rbx, rbx                ; rbx = compteur de voyelles (0)
     xor r8, r8                  ; r8 = index dans le buffer (0)
@@ -39,7 +38,7 @@ _start:
     movzx rax, byte [input_buffer + r8]
     
     ; Vérifier si c'est une voyelle (minuscule ou majuscule)
-    ; Méthode optimisée: comparer avec chaque voyelle
+    ; Inclure Y comme voyelle
     
     cmp al, 'a'
     je .is_vowel
@@ -51,6 +50,8 @@ _start:
     je .is_vowel
     cmp al, 'u'
     je .is_vowel
+    cmp al, 'y'
+    je .is_vowel
     
     cmp al, 'A'
     je .is_vowel
@@ -61,6 +62,8 @@ _start:
     cmp al, 'O'
     je .is_vowel
     cmp al, 'U'
+    je .is_vowel
+    cmp al, 'Y'
     je .is_vowel
     
     ; Pas une voyelle, passer au caractère suivant
