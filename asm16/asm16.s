@@ -1,16 +1,15 @@
 section .data
-    target_string db '1337', 0
-    patch_string  db 'H4CK', 0
+    search_bytes db '1337'
+    patch_bytes  db 'H4CK'
 
 section .bss
     filename_buffer resb 256
-    buffer resb 4096
+    file_buffer resb 4096
 
 section .text
     global _start
 
 _start:
-    ; == Vérif argument ==
     mov rcx, [rsp]
     cmp rcx, 2
     jne usage_error
@@ -19,89 +18,85 @@ _start:
     mov rsi, filename_buffer
     call copy_string
 
-    ; == Open asm01 binaire en RW ==
-    mov rax, 2          ; sys_open
+    ; Ouvrir fichier en lecture/écriture
+    mov rax, 2              ; sys_open
     mov rdi, filename_buffer
-    mov rsi, 2          ; O_RDWR
+    mov rsi, 2              ; O_RDWR
     mov rdx, 0
     syscall
     cmp rax, 0
     jl file_error
-    mov rbx, rax
+    mov rbx, rax            ; fd
 
-    ; == Read bloc ==
-    mov rax, 0          ; sys_read
-    mov rdi, rbx        ; fd
-    mov rsi, buffer
+    ; Lire contenu fichier
+    mov rax, 0              ; sys_read
+    mov rdi, rbx
+    mov rsi, file_buffer
     mov rdx, 4096
     syscall
     cmp rax, 1
     jl file_error
-    mov r8, rax         ; r8 = nb octets lus
+    mov r8, rax             ; taille lue
 
-    ; == Recherche "1337" dans buffer ==
-    xor rcx, rcx                ; index = 0
+    xor rcx, rcx            ; index début boucle
 .find_loop:
-    cmp rcx, r8                 ; fin de buffer ?
-    jge not_found
-    ; Compare 4 bytes
-    mov rsi, buffer
+    cmp rcx, r8
+    jg not_found
+
+    mov rsi, file_buffer
     add rsi, rcx
+
     mov eax, dword [rsi]
-    cmp eax, 0x37333331         ; '1337' en little endian
+    cmp eax, 0x37333331     ; '1337' en little endian
     jne .next
-    ; trouvé!
-    mov rdx, rbx                ; fd
-    mov rax, 1                  ; sys_write
-    mov rdi, rdx
-    mov rsi, patch_string
-    mov rdx, 4                  ; longueur
-    ; Positionnement du curseur à l’offset
-    mov rax, 8                  ; sys_lseek
+
+    ; Positionner curseur à rcx pour écriture
+    mov rax, 8              ; sys_lseek
     mov rdi, rbx
     mov rsi, rcx
-    mov rdx, 0                  ; SEEK_SET
+    mov rdx, 0              ; SEEK_SET
     syscall
-    ; Ecriture patch
-    mov rax, 1                  ; sys_write
+
+    ; Ecrire patch
+    mov rax, 1              ; sys_write
     mov rdi, rbx
-    mov rsi, patch_string
+    mov rsi, patch_bytes
     mov rdx, 4
     syscall
     jmp patch_done
+
 .next:
     inc rcx
     jmp .find_loop
 
 not_found:
-    ; Rien n'a été patché
-    mov rax, 3          ; sys_close
+    mov rax, 3              ; sys_close
     mov rdi, rbx
     syscall
     mov rax, 60
-    mov rdi, 1
+    mov rdi, 1              ; exit code 1 (pas trouvé)
     syscall
 
 patch_done:
-    mov rax, 3          ; sys_close
+    mov rax, 3              ; sys_close
     mov rdi, rbx
     syscall
     mov rax, 60
-    xor rdi, rdi        ; succès
+    xor rdi, rdi            ; exit code 0 succès
     syscall
 
-file_error:
 usage_error:
+file_error:
     mov rax, 60
     mov rdi, 1
     syscall
 
-; Copie argv vers buffer null-terminated
+; Copie une chaîne depuis argv vers buffer (null-terminated)
 copy_string:
     xor rcx, rcx
 .copy:
-    mov al, byte [rdi+rcx]
-    mov [rsi+rcx], al
+    mov al, byte [rdi + rcx]
+    mov [rsi + rcx], al
     inc rcx
     test al, al
     jnz .copy
