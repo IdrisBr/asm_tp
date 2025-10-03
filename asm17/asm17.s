@@ -9,14 +9,15 @@ global _start
 
 _start:
     mov rax, [rsp]
-    cmp rax, 2                ; require shift param
+    cmp rax, 2
     jne usage_error
 
-    mov rsi, [rsp+16]         ; argv[1]
+    ; Parsing shift param
+    mov rsi, [rsp+16]
     xor rbx, rbx
     xor rcx, rcx
 .parse_shift:
-    mov al, [rsi+rcx]
+    mov al, [rsi + rcx]
     test al, al
     jz .done_parse
     cmp al, '0'
@@ -29,62 +30,64 @@ _start:
     inc rcx
     jmp .parse_shift
 .done_parse:
-    mov r13, rbx              ; shift
+    mov r13b, bl     ; r13b = shift dans 0-255
 
-    mov rax, 0                ; sys_read
-    mov rdi, 0                ; stdin
+    ; lecture stdin
+    mov rax, 0
+    mov rdi, 0
     mov rsi, input
     mov rdx, 4096
     syscall
-    mov r12, rax              ; length
-    test rax, rax
-    jle output_empty
+    mov r12, rax         ; longueur lue
 
     xor rcx, rcx
-.next_char:
+.loop:
     cmp rcx, r12
-    jge output_done
+    jge .done
+    mov al, [input + rcx]
 
-    mov al, [input+rcx]
-    mov bl, al                ; backup original
-    ; Lowercase test
+    ; test lowercase
     cmp al, 'a'
-    jb .check_upper
+    jb .majuscule
     cmp al, 'z'
-    ja .copy_char
+    ja .autre
     sub al, 'a'
     add al, r13b
     mov ah, 0
-    mov bl, 26
-    div bl                    ; rax = (val+shift)/26, al = new char pos
+    cmp al, 26
+    jl .pas_mod
+    sub al, 26
+.pas_mod:
     add al, 'a'
-    mov [input+rcx], al
-    jmp .next_pos
+    mov [input + rcx], al
+    inc rcx
+    jmp .loop
 
-.check_upper:
-    cmp bl, 'A'
-    jb .copy_char
-    cmp bl, 'Z'
-    ja .copy_char
-    mov al, bl
+.majuscule:
+    cmp al, 'A'
+    jb .autre
+    cmp al, 'Z'
+    ja .autre
     sub al, 'A'
     add al, r13b
     mov ah, 0
-    mov bl, 26
-    div bl
+    cmp al, 26
+    jl .pas_mod2
+    sub al, 26
+.pas_mod2:
     add al, 'A'
-    mov [input+rcx], al
-    jmp .next_pos
-
-.copy_char:
-    mov [input+rcx], bl
-
-.next_pos:
+    mov [input + rcx], al
     inc rcx
-    jmp .next_char
+    jmp .loop
 
-output_done:
-    mov rax, 1                ; sys_write
+.autre:
+    ; caractère inchangé
+    mov [input + rcx], al
+    inc rcx
+    jmp .loop
+
+.done:
+    mov rax, 1
     mov rdi, 1
     mov rsi, input
     mov rdx, r12
@@ -93,31 +96,21 @@ output_done:
     xor rdi, rdi
     syscall
 
-output_empty:
-    mov rax, 1
-    mov rdi, 1
-    mov rsi, input
-    mov rdx, 0
-    syscall
-    mov rax, 60
-    xor rdi, rdi
-    syscall
-
 usage_error:
     mov rsi, usage
-    call print_str0
+    call print0
     mov rax, 60
     mov rdi, 1
     syscall
 
-print_str0:
+print0:
     mov rdx, 0
-.find_end:
-    cmp byte [rsi+rdx], 0
-    je .done_len
+.nextchar:
+    cmp byte [rsi + rdx], 0
+    je .pr
     inc rdx
-    jmp .find_end
-.done_len:
+    jmp .nextchar
+.pr:
     mov rax, 1
     mov rdi, 1
     syscall
