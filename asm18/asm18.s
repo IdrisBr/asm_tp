@@ -1,15 +1,22 @@
 section .data
-    msg        db 'Hello, client!',0
-    sockaddr   db 2,0,7,213,127,0,0,1,0,0,0,0,0,0,0,0 ; AF_INET, port 2005, 127.0.0.1
-    msglen     equ $-msg
-    sockaddrlen equ 16
+    ; sockaddr_in: AF_INET, port 2005, 127.0.0.1
+    sockaddr:
+        dw 2                ; AF_INET
+        dw 0x07d5           ; port 2005 (big endian)
+        dd 0x7f000001       ; 127.0.0.1 en little endian
+        dq 0                ; padding
 
-    timeout_msg db 'Timeout: no response from server',10,0
-    resp_msg1 db 'message: "',0
-    resp_msg2 db '"',10,0
+    msg         db 'Hello, client!'
+    msglen      equ $-msg
+
+    timeoutval: dq 5, 0     ; struct timeval : 5s, 0us
+
+    text_ok     db 'message: "',0
+    text_end    db '"',10,0
+    text_tout   db 'Timeout: no response from server',10,0
 
 section .bss
-    buf resb 128
+    buf resb 256
 
 section .text
 global _start
@@ -19,70 +26,72 @@ _start:
     mov rax, 41           ; sys_socket
     mov rdi, 2            ; AF_INET
     mov rsi, 2            ; SOCK_DGRAM
-    mov rdx, 0
+    xor rdx, rdx
     syscall
-    cmp rax, 0
-    jl fail               ; Erreur
-    mov r12, rax          ; fd UDP dans r12
+    test rax, rax
+    js fail
+    mov r12, rax          ; fd
 
-    ; Envoi du message
-    mov rax, 44           ; sys_sendto
+    ; setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeoutval, 16)
+    mov rax, 54
     mov rdi, r12
-    mov rsi, msg
-    mov rdx, msglen
-    mov r10, 0            ; flags
-    mov r8, sockaddr
-    mov r9, sockaddrlen
-    syscall
-
-    ; Set timeout avec sys_setsockopt
-    mov rax, 54           ; sys_setsockopt
-    mov rdi, r12          ; fd
     mov rsi, 1            ; SOL_SOCKET
     mov rdx, 20           ; SO_RCVTIMEO
     mov r10, timeoutval
-    mov r8, 8             ; taille struct timeval
+    mov r8, 16
     syscall
 
-    ; Attente/lecture réponse
-    mov rax, 45           ; sys_recvfrom
+    ; sendto(fd, msg, msglen, 0, sockaddr, 16)
+    mov rax, 44
+    mov rdi, r12
+    mov rsi, msg
+    mov rdx, msglen
+    xor r10, r10
+    mov r8, sockaddr
+    mov r9, 16
+    syscall
+
+    ; recvfrom(fd, buf, 256, 0, NULL, NULL)
+    mov rax, 45
     mov rdi, r12
     mov rsi, buf
-    mov rdx, 128
-    mov r10, 0
-    mov r8, sockaddr
-    mov r9, sockaddrlen
+    mov rdx, 256
+    xor r10, r10
+    xor r8, r8
+    xor r9, r9
     syscall
+    test rax, rax
+    js timeout
     cmp rax, 0
-    jle timeout           ; Timeout ou erreur (<0)
-    mov r13, rax          ; taille reçue
+    jle timeout
+    mov r13, rax
 
-    ; Affichage "message: "<MSG>"
-    mov rsi, resp_msg1
+    ; Affichage réponse
+    mov rsi, text_ok
     call print0
     mov rax, 1
     mov rdi, 1
     mov rsi, buf
     mov rdx, r13
     syscall
-    mov rsi, resp_msg2
+    mov rsi, text_end
     call print0
 
-    mov rax, 3            ; sys_close
+    mov rax, 3
     mov rdi, r12
     syscall
 
-    mov rax, 60           ; exit 0
+    mov rax, 60
     xor rdi, rdi
     syscall
 
 timeout:
-    mov rsi, timeout_msg
+    mov rsi, text_tout
     call print0
     mov rax, 3
     mov rdi, r12
     syscall
-    mov rax, 60           ; exit 1
+    mov rax, 60
     mov rdi, 1
     syscall
 
@@ -93,16 +102,13 @@ fail:
 
 print0:
     mov rdx, 0
-.loop:
+.p0l:
     cmp byte [rsi+rdx], 0
-    je .go
+    je .p0w
     inc rdx
-    jmp .loop
-.go:
+    jmp .p0l
+.p0w:
     mov rax, 1
     mov rdi, 1
     syscall
     ret
-
-section .data
-timeoutval: dq 5, 0   ; struct timeval : 5s, 0us
